@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Billy TV - Tela dos Jogadores</title>
+<script src="peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; background: #000; overflow: hidden; cursor: none; }
+
+  /* TELA INTEIRA = VIDRO DO TUBO CRT */
+  #tube {
+    position: fixed; inset: 0;
+    overflow: hidden;
+    background: #000;
+    transform-origin: center;
+  }
+  #tube.off { transform: scale(0, 0); }
+  #tube.turning-on  { animation: crtOn 0.75s cubic-bezier(.2,.9,.3,1) forwards; }
+  #tube.turning-off { animation: crtOff 0.45s cubic-bezier(.6,0,.9,.4) forwards; }
+
+  @keyframes crtOn {
+    0%   { transform: scale(0.001, 0.002); filter: brightness(35); }
+    30%  { transform: scale(1, 0.005);     filter: brightness(22); }
+    60%  { transform: scale(1, 1.05);      filter: brightness(3.5) contrast(1.6); }
+    80%  { transform: scale(1, 0.98);      filter: brightness(1.5); }
+    100% { transform: scale(1, 1);         filter: brightness(1); }
+  }
+  @keyframes crtOff {
+    0%   { transform: scale(1, 1);        filter: brightness(1); }
+    50%  { transform: scale(1, 0.004);    filter: brightness(15); }
+    80%  { transform: scale(0.2, 0.004);  filter: brightness(30); }
+    100% { transform: scale(0, 0);        filter: brightness(50); }
+  }
+
+  /* CANVAS PRINCIPAL (BILLY) */
+  canvas#screen {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    filter: url(#crtGrade) contrast(1.22) brightness(1.05);
+    will-change: transform;
+  }
+
+  /* CHUVISCO ANALÓGICO PESADO */
+  canvas#noise-layer {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    opacity: 0.85;
+    z-index: 5;
+  }
+
+  canvas#noise-overlay {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    mix-blend-mode: hard-light;
+    opacity: 0.50;
+    z-index: 6;
+  }
+
+  /* SCANLINES */
+  .scan {
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0,0,0,0.72) 0px,
+      rgba(0,0,0,0.72) 2px,
+      transparent 2px,
+      transparent 4px
+    );
+    mix-blend-mode: multiply;
+    z-index: 7;
+  }
+
+  /* FÓSFORO RGB */
+  .rgb {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0.42;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(255,0,0,0.5) 0 1px,
+      rgba(0,255,0,0.8) 1px 2px,
+      rgba(0,0,255,0.5) 2px 3px
+    );
+    mix-blend-mode: overlay;
+    z-index: 8;
+  }
+
+  /* FAIXA DE INTERFERÊNCIA DE SINAL RF */
+  .vhs-tear {
+    position: absolute; left: 0; width: 100%; height: 75px;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(255,255,255,0.45) 0px,
+      rgba(0,0,0,0.65) 2px,
+      rgba(150,255,180,0.55) 4px
+    );
+    mix-blend-mode: overlay;
+    pointer-events: none;
+    opacity: 0.92;
+    z-index: 9;
+    animation: tearRoll 3.8s linear infinite;
+  }
+  @keyframes tearRoll {
+    0%   { top: -90px; transform: scaleY(1); }
+    20%  { top: 22%; transform: scaleY(2.2); opacity: 0.95; }
+    50%  { top: 58%; transform: scaleY(1.2); opacity: 0.6; }
+    80%  { top: 88%; transform: scaleY(2.8); opacity: 0.9; }
+    100% { top: 110%; transform: scaleY(1); }
+  }
+
+  .roll {
+    position: absolute; left: 0; width: 100%; height: 20%; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, rgba(120,255,160,0.12), transparent);
+    animation: roll 8s linear infinite;
+    z-index: 9;
+  }
+  @keyframes roll { from { top: -25%; } to { top: 115%; } }
+
+  /* CANTOS TOTALMENTE ESCUROS (CAMUFLAGEM TOTAL DO ARREDONDAMENTO) */
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.92) 80%, #000000 100%);
+    box-shadow: 
+      inset 0 0 160px 80px #000000,
+      inset 0 0 280px 140px rgba(0,0,0,0.98),
+      inset 0 0 400px 200px rgba(0,5,0,0.85);
+    z-index: 10;
+  }
+
+  .glare {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 25% 15%, rgba(255,255,255,0.08), transparent 45%);
+    z-index: 10;
+  }
+
+  /* OSD: CRONÔMETRO DE SALA (OPCIONAL CONTROLADO PELO MESTRE) */
+  .osd-timer {
+    position: absolute;
+    top: 25px;
+    right: 35px;
+    font-size: 36px;
+    font-weight: bold;
+    color: #ff3333;
+    letter-spacing: 4px;
+    font-family: 'Courier New', monospace;
+    text-shadow: 0 0 14px rgba(255, 30, 30, 0.9);
+    z-index: 25;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .osd-timer.visible { opacity: 1; }
+  .osd-timer.warning { animation: timerAlert 0.4s infinite alternate; }
+
+  @keyframes timerAlert {
+    from { color: #ff2222; transform: scale(1); }
+    to { color: #ffffff; transform: scale(1.06); }
+  }
+
+  .osd-rec {
+    position: absolute;
+    top: 25px;
+    left: 35px;
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: #6eff6e;
+    text-shadow: 0 0 8px rgba(110, 255, 110, 0.8);
+    font-family: 'Courier New', monospace;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .osd-rec.visible { opacity: 1; }
+  .rec-dot {
+    width: 12px; height: 12px; background: #ff2222; border-radius: 50%;
+    box-shadow: 0 0 10px #ff2222; animation: blink 1.2s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<!-- FILTRO VERDE-ÁGUA ANALÓGICO -->
+<svg width="0" height="0" style="position:absolute">
+  <filter id="crtGrade" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="
+      0.40 0.18 0.05 0 0.01
+      0.25 0.65 0.15 0 0.03
+      0.18 0.55 0.22 0 0.02
+      0    0    0    1 0"/>
+    <feComponentTransfer>
+      <feFuncR type="gamma" amplitude="1.45" exponent="1.30" offset="0.015"/>
+      <feFuncG type="gamma" amplitude="1.50" exponent="1.18" offset="0.04"/>
+      <feFuncB type="gamma" amplitude="1.45" exponent="1.22" offset="0.03"/>
+    </feComponentTransfer>
+  </filter>
+</svg>
+
+<div id="tube" class="off">
+  <canvas id="screen"></canvas>
+  <canvas id="noise-layer"></canvas>
+  <canvas id="noise-overlay"></canvas>
+  <div class="vhs-tear"></div>
+  <div class="roll"></div>
+  <div class="scan"></div>
+  <div class="rgb"></div>
+  <div class="glare"></div>
+  <div class="vignette"></div>
+
+  <div class="osd-rec" id="osd-rec">
+    <div class="rec-dot"></div>
+    <span>PLAY ▶ SP</span>
+  </div>
+  <div class="osd-timer" id="osd-timer">01:00</div>
+</div>
+
+<script>
+/* ============================================================
+   CANAL DE COMUNICAÇÃO COM O PAINEL DO MESTRE (BROADCAST)
+   ============================================================ */
+const channel = new BroadcastChannel('jigsaw_tv');
+
+const cv = document.getElementById('screen');
+const ctx = cv.getContext('2d', { alpha: false });
+
+const ncv = document.getElementById('noise-layer');
+const nctx = ncv.getContext('2d');
+
+const nocv = document.getElementById('noise-overlay');
+const noctx = nocv.getContext('2d');
+
+const tube = document.getElementById('tube');
+const osdTimer = document.getElementById('osd-timer');
+const osdRec = document.getElementById('osd-rec');
+
+const IMG_SRC = 'billy_front.jpg';
+const CROP = { x: 120, y: 120, w: 800, h: 690 };
+
+const DEFAULT_JAW = [
+  [463,558],[490,565],[520,568],[550,565],[575,557],
+  [577,600],[575,648],[560,668],[520,677],[480,670],[465,655],[461,600]
+];
+const JAW_MAX_DROP = 25;
+let JAW = JSON.parse(localStorage.getItem('billyJawFront') || 'null') || DEFAULT_JAW;
+
+const img = new Image();
+img.src = IMG_SRC;
+
+let scale = 1, offX = 0, offY = 0;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  cv.width = Math.round(innerWidth * dpr * 0.75);
+  cv.height = Math.round(innerHeight * dpr * 0.75);
+
+  ncv.width = Math.round(innerWidth * 0.6);
+  ncv.height = Math.round(innerHeight * 0.6);
+
+  nocv.width = Math.round(innerWidth * 0.6);
+  nocv.height = Math.round(innerHeight * 0.6);
+
+  scale = Math.max(cv.height / CROP.h, cv.width / 1024);
+  offX = cv.width / 2 - (CROP.x + CROP.w / 2) * scale;
+  offY = (cv.height - CROP.h * scale) / 2 - CROP.y * scale;
+}
+addEventListener('resize', resize);
+resize();
+
+/* ============================================================
+   CHUVISCO DENSO DE TV SEM SINAL
+   ============================================================ */
+const noiseFrames = [];
+const NOISE_SIZE = 256;
+for (let f = 0; f < 8; f++) {
+  const c = document.createElement('canvas');
+  c.width = NOISE_SIZE; c.height = NOISE_SIZE;
+  const cx = c.getContext('2d');
+  const d = cx.createImageData(NOISE_SIZE, NOISE_SIZE);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const r = Math.random();
+    let v;
+    if (r < 0.40) v = 210 + Math.random() * 45;
+    else if (r < 0.70) v = 110 + Math.random() * 70;
+    else v = Math.random() * 40;
+
+    d.data[i]   = v * 0.85;
+    d.data[i+1] = v * 1.15;
+    d.data[i+2] = v * 0.95;
+    d.data[i+3] = 255;
+  }
+  cx.putImageData(d, 0, 0);
+  noiseFrames.push(c);
+}
+
+function jawPath(c, pts) {
+  c.beginPath();
+  pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y));
+  c.closePath();
+}
+
+/* ============================================================
+   VARIÁVEIS DE ESTADO CONTROLADAS PELO MESTRE
+   ============================================================ */
+let powered = false;
+let level = 0, targetLevel = 0, jaw = 0;
+let noiseIntensity = 0.88;
+
+/* ÁUDIO CONTEXT PARA EFEITOS SONOROS DA TV */
+const isMuted = new URLSearchParams(location.search).get('muted') === '1';
+let actx = null;
+function ensureAudio() {
+  if (isMuted) return;
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+}
+
+function crtSound(on) {
+  if (isMuted) return;
+  try {
+    ensureAudio();
+    if (!actx) return;
+    const n = actx.currentTime;
+    const len = Math.floor(actx.sampleRate * 0.09);
+    const b = actx.createBuffer(1, len, actx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const s = actx.createBufferSource(); s.buffer = b;
+    const g = actx.createGain(); g.gain.value = 0.4;
+    s.connect(g).connect(actx.destination); s.start(n);
+
+    const o = actx.createOscillator(), og = actx.createGain();
+    o.type = 'sine'; o.frequency.value = 15600;
+    og.gain.setValueAtTime(0.025, n);
+    og.gain.exponentialRampToValueAtTime(0.0001, n + (on ? 1.4 : 0.45));
+    o.connect(og).connect(actx.destination); o.start(n); o.stop(n + 1.5);
+
+    if (on) {
+      const h = actx.createOscillator(), hg = actx.createGain();
+      h.type = 'sawtooth'; h.frequency.value = 58;
+      hg.gain.setValueAtTime(0.18, n);
+      hg.gain.exponentialRampToValueAtTime(0.0001, n + 0.75);
+      h.connect(hg).connect(actx.destination); h.start(n); h.stop(n + 0.8);
+    }
+  } catch(e) {}
+}
+
+function setPower(on) {
+  if (powered === on) return;
+  powered = on;
+  crtSound(powered);
+  tube.classList.remove('off', 'turning-on', 'turning-off');
+  void tube.offsetWidth;
+  if (powered) {
+    tube.classList.add('turning-on');
+  } else {
+    tube.classList.add('turning-off');
+  }
+}
+
+/* PROCESSAMENTO UNIFICADO DE MENSAGENS (LOCAL OU INTERNET) */
+function handleIncomingMessage(msg) {
+  if (!msg) return;
+
+  if (msg.type === 'POWER') {
+    setPower(msg.value);
+  } else if (msg.type === 'AUDIO_LEVEL') {
+    targetLevel = msg.value;
+  } else if (msg.type === 'NOISE') {
+    noiseIntensity = msg.value;
+  } else if (msg.type === 'TIMER') {
+    if (msg.visible) {
+      osdTimer.classList.add('visible');
+      osdRec.classList.add('visible');
+      osdTimer.innerText = msg.text;
+      if (msg.warning) osdTimer.classList.add('warning');
+      else osdTimer.classList.remove('warning');
+    } else {
+      osdTimer.classList.remove('visible');
+      osdRec.classList.remove('visible');
+    }
+  }
+}
+
+/* 1. CANAL LOCAL (BROADCAST CHANNEL) */
+channel.onmessage = (e) => {
+  handleIncomingMessage(e.data);
+  if (e.data && e.data.type === 'PING') {
+    channel.postMessage({ type: 'PONG', powered });
+  }
+};
+channel.postMessage({ type: 'PLAYER_READY' });
+
+/* 2. CONEXÃO P2P PELA INTERNET (PARA JOGADORES QUE MORAM LONGE) */
+const roomCode = location.hash.replace('#', '').trim() || new URLSearchParams(location.search).get('room') || 'SESSAO1';
+let peer = null;
+
+if (typeof Peer !== 'undefined') {
+  try {
+    peer = new Peer();
+    peer.on('open', () => {
+      connectToRemoteGM(roomCode);
+    });
+    peer.on('error', (err) => {
+      console.log('PeerJS status:', err.type);
+    });
+  } catch(e) {}
+}
+
+function connectToRemoteGM(code) {
+  if (!peer) return;
+  const targetId = 'jigsaw-gm-' + code.toUpperCase();
+  const conn = peer.connect(targetId, { reliable: false });
+  conn.on('open', () => {
+    conn.send({ type: 'PLAYER_CONNECTED' });
+  });
+  conn.on('data', (data) => {
+    handleIncomingMessage(data);
+  });
+  conn.on('close', () => {
+    setTimeout(() => connectToRemoteGM(code), 3000);
+  });
+}
+
+/* ============================================================
+   LOOP DE ANIMAÇÃO 60 FPS
+   ============================================================ */
+let t0 = performance.now(), frameCount = 0;
+
+function draw(now) {
+  requestAnimationFrame(draw);
+  if (!img.complete || !img.naturalWidth) return;
+  const t = (now - t0) * 0.001;
+  frameCount++;
+
+  level += (targetLevel - level) * (targetLevel > level ? 0.85 : 0.28);
+  jaw += (level - jaw) * 0.65;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // BILLY TOTALMENTE ESTÁTICO E FIRME (SEM SACUDIR OU TREMER)
+  ctx.setTransform(scale, 0, 0, scale, offX, offY);
+
+  // 1. BILLY
+  ctx.drawImage(img, 0, 0);
+
+  // 2. QUEIXO
+  const drop = jaw * JAW_MAX_DROP;
+  if (drop > 0.4) {
+    ctx.save();
+    jawPath(ctx, JAW);
+    ctx.clip();
+
+    const ys = JAW.map(p => p[1]);
+    const top = Math.min(...ys);
+
+    const g = ctx.createLinearGradient(0, top, 0, top + drop + 8);
+    g.addColorStop(0, '#101712');
+    g.addColorStop(0.4, '#1c2820');
+    g.addColorStop(1, '#2c3a2e');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, top - 6, img.naturalWidth, drop + 180);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, top - 4, img.naturalWidth, 6);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(0, drop);
+    jawPath(ctx, JAW);
+    ctx.clip();
+    ctx.drawImage(img, 0, 0);
+
+    const sg = ctx.createLinearGradient(0, top, 0, top + 12);
+    sg.addColorStop(0, 'rgba(0,0,0,0.7)');
+    sg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, top - 2, img.naturalWidth, 14);
+    ctx.restore();
+  }
+
+  // 3. CHUVISCO PESADO
+  nctx.clearRect(0, 0, ncv.width, ncv.height);
+  const nImg = noiseFrames[frameCount % noiseFrames.length];
+  const pat = nctx.createPattern(nImg, 'repeat');
+  nctx.fillStyle = pat;
+  nctx.globalAlpha = Math.min(1, noiseIntensity * 0.95 + level * 0.15);
+  nctx.fillRect(0, 0, ncv.width, ncv.height);
+
+  noctx.clearRect(0, 0, nocv.width, nocv.height);
+  const nImg2 = noiseFrames[(frameCount + 3) % noiseFrames.length];
+  const pat2 = noctx.createPattern(nImg2, 'repeat');
+  noctx.fillStyle = pat2;
+  noctx.globalAlpha = Math.min(1, noiseIntensity * 0.65);
+  noctx.fillRect(0, 0, nocv.width, nocv.height);
+
+  if (Math.random() < 0.40 || level > 0.35) {
+    const y = Math.random() * ncv.height;
+    const h = 4 + Math.random() * 26;
+    nctx.fillStyle = 'rgba(255,255,255,0.75)';
+    nctx.fillRect(0, y, ncv.width, h);
+    nctx.fillStyle = 'rgba(0,15,5,0.9)';
+    nctx.fillRect(0, y + 2, ncv.width, 3);
+  }
+}
+requestAnimationFrame(draw);
+
+/* DUPLO CLIQUE OU 'F' ENTRA EM TELA CHEIA */
+addEventListener('keydown', (e) => {
+  if (e.key === 'f' || e.key === 'F') {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+    else document.exitFullscreen().catch(()=>{});
+  }
+});
+addEventListener('dblclick', () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen().catch(()=>{});
+});
+</script>
+</body>
+</html>

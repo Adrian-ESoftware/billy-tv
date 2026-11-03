@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Jigsaw TV • Central de Inicialização</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background-color: #060907;
+    color: #a0e6a0;
+    font-family: 'Courier New', Courier, monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .hub-container {
+    max-width: 680px;
+    width: 100%;
+    background: #0d140e;
+    border: 2px solid #234827;
+    border-radius: 16px;
+    padding: 36px 30px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  h1 {
+    font-size: 22px;
+    color: #44ee44;
+    text-align: center;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 0 10px rgba(68, 238, 68, 0.4);
+  }
+
+  p.subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #72a872;
+    margin-top: -12px;
+  }
+
+  .options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 10px;
+  }
+
+  .option-card {
+    background: #132014;
+    border: 1px solid #2c5830;
+    border-radius: 12px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s ease;
+  }
+
+  .option-card:hover {
+    background: #1d3320;
+    border-color: #44dd44;
+    box-shadow: 0 0 15px rgba(68, 221, 68, 0.3);
+    transform: translateY(-3px);
+  }
+
+  .option-icon {
+    font-size: 40px;
+  }
+
+  .option-title {
+    font-size: 15px;
+    font-weight: bold;
+    color: #ffffff;
+    letter-spacing: 1px;
+  }
+
+  .option-desc {
+    font-size: 11px;
+    color: #88c088;
+    line-height: 1.5;
+  }
+
+  .tip-box {
+    background: #090e0a;
+    border-left: 3px solid #ff4444;
+    padding: 12px 16px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #ccc;
+    line-height: 1.6;
+  }
+  .tip-box strong { color: #ff6666; }
+</style>
+</head>
+<body>
+
+<div class="hub-container">
+  <h1>🩸 JIGSAW CRT BROADCAST SYSTEM</h1>
+  <p class="subtitle">Sistema de TV de Tubo Reativa para Mesa de RPG</p>
+
+  <div class="options-grid">
+    <!-- OPÇÃO 1: TELA DOS PLAYERS -->
+    <a href="player.html" target="_blank" class="option-card">
+      <div class="option-icon">📺</div>
+      <div class="option-title">TELA DOS PLAYERS</div>
+      <div class="option-desc">
+        Abra esta tela na sua <strong>2ª tela, TV da sala ou compartilhamento no Discord</strong>.<br><br>
+        100% imersiva: apenas a TV de tubo escura com o Billy e o chuvisco analógico. Sem nenhum botão.
+      </div>
+    </a>
+
+    <!-- OPÇÃO 2: PAINEL DO MESTRE -->
+    <a href="mestre.html" target="_blank" class="option-card">
+      <div class="option-icon">🎛️</div>
+      <div class="option-title">PAINEL DO MESTRE</div>
+      <div class="option-desc">
+        Abra esta tela no seu <strong>notebook ou monitor principal</strong>.<br><br>
+        Ligue o microfone, controle a TV, inicie o cronômetro e leia o roteiro das fitas ao vivo.
+      </div>
+    </a>
+  </div>
+
+  <div class="tip-box">
+    <strong>Como usar na sua sessão:</strong><br>
+    1. Abra a <em>Tela dos Players</em> e aperte <strong>F</strong> para colocá-la em Tela Cheia no monitor dos jogadores.<br>
+    2. No seu monitor, abra o <em>Painel do Mestre</em> e ligue o seu microfone.<br>
+    3. Quando você apertar <strong>"Ligar TV"</strong> ou falar no microfone, a TV dos jogadores acenderá e a boca do Billy se moverá sincronizada com a sua voz!
+  </div>
+</div>
+
+</body>
+</html>

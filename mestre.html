@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Painel do Mestre - Controle do Jigsaw</title>
+<script src="peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background-color: #0b0f0c;
+    color: #b5f0b5;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 100vh;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #1a331a;
+    padding-bottom: 14px;
+  }
+
+  h1 {
+    font-size: 20px;
+    letter-spacing: 2px;
+    color: #44dd44;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    font-family: monospace;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #182218;
+    border: 1px solid #2a4c2a;
+    color: #88c088;
+  }
+  .status-badge.connected {
+    background: #0f300f;
+    border-color: #44cc44;
+    color: #66ff66;
+    box-shadow: 0 0 10px rgba(68, 204, 68, 0.3);
+  }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: #666;
+  }
+  .connected .status-dot {
+    background: #44ff44; box-shadow: 0 0 8px #44ff44;
+  }
+
+  /* GRID PRINCIPAL */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 20px;
+    flex: 1;
+  }
+
+  .card {
+    background: #101712;
+    border: 1px solid #1f3a22;
+    border-radius: 12px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #72cc72;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    border-bottom: 1px solid #1b301d;
+    padding-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* BOTÕES INDUSTRIAIS */
+  .btn {
+    background: #18291a;
+    color: #a8f0a8;
+    border: 1px solid #2d5a32;
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.15s;
+  }
+  .btn:hover {
+    background: #234027;
+    color: #ffffff;
+    border-color: #55aa55;
+  }
+  .btn.active {
+    background: #255c25;
+    color: #ffffff;
+    border-color: #55ee55;
+    box-shadow: 0 0 12px rgba(85, 238, 85, 0.4);
+  }
+  .btn.power-on {
+    background: #1a4d1a;
+    border-color: #44dd44;
+    color: #fff;
+  }
+  .btn.danger {
+    background: #2c1414;
+    border-color: #662222;
+    color: #ff9999;
+  }
+  .btn.danger:hover {
+    background: #4a1919;
+    border-color: #aa3333;
+    color: #fff;
+  }
+
+  /* MEDIDOR DE VOLUME */
+  .meter-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vu-bar-wrapper {
+    height: 14px;
+    background: #081008;
+    border: 1px solid #224422;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .vu-bar-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(to right, #44cc44 60%, #ffff00 85%, #ff2222 100%);
+    transition: width 0.04s;
+  }
+
+  /* SLIDERS */
+  .slider-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #88c088;
+  }
+  input[type="range"] {
+    accent-color: #44cc44;
+    width: 60%;
+    cursor: pointer;
+  }
+
+  /* CRONÔMETRO */
+  .timer-display {
+    font-size: 42px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    color: #ff4444;
+    text-align: center;
+    letter-spacing: 4px;
+    padding: 10px;
+    background: #080c08;
+    border: 1px solid #2a1a1a;
+    border-radius: 8px;
+    text-shadow: 0 0 10px rgba(255, 68, 68, 0.6);
+  }
+  .timer-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .timer-presets button {
+    background: #142216;
+    color: #9fe09f;
+    border: 1px solid #264428;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+  }
+  .timer-presets button:hover { background: #203c24; }
+
+  /* TELEPROMPTER DE FITAS */
+  .tape-tabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid #1f3622;
+    padding-bottom: 8px;
+  }
+  .tape-tab {
+    background: #121e14;
+    color: #7ab87a;
+    border: 1px solid #203822;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .tape-tab.active {
+    background: #234825;
+    color: #fff;
+    border-color: #44cc44;
+  }
+  .tape-content {
+    background: #0a0e0a;
+    border: 1px solid #1a2a1c;
+    border-radius: 8px;
+    padding: 14px;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #d8eed8;
+    max-height: 380px;
+    overflow-y: auto;
+    font-style: italic;
+  }
+  .tape-content p { margin-bottom: 10px; }
+
+  .open-link {
+    color: #44dd44;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: #142817;
+    border: 1px solid #244c2a;
+  }
+  .open-link:hover { background: #204426; color: #fff; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🩸 JIGSAW CONTROL • PAINEL DO MESTRE</h1>
+  <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+    <button class="open-link" onclick="copyPlayerLink()" id="btn-copy-link" style="cursor: pointer; border: none;">
+      📋 COPIAR LINK P/ PLAYERS REMOTOS
+    </button>
+    <a href="player.html#SESSAO1" target="_blank" class="open-link">⛶ Abrir Minha 2ª Tela (Local)</a>
+    <div class="status-badge" id="player-status">
+      <div class="status-dot"></div>
+      <span id="status-text">AGUARDANDO CONEXÕES</span>
+    </div>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- COLUNA 1: CONTROLES DA TRANSMISSÃO -->
+  <div style="display: flex; flex-direction: column; gap: 18px;">
+    
+    <!-- CONTROLE DE TRANSMISSÃO DA TV -->
+    <div class="card">
+      <div class="card-title">1. Tela dos Jogadores (TV CRT)</div>
+      
+      <button class="btn" id="btn-power" onclick="togglePower()">
+        ⏻ LIGAR TV DOS JOGADORES
+      </button>
+
+      <div class="slider-row">
+        <span>Tempestade de Chuvisco:</span>
+        <input type="range" id="noise-slider" min="30" max="100" value="88" oninput="setNoise(this.value)">
+      </div>
+    </div>
+
+    <!-- MICROFONE DO MESTRE -->
+    <div class="card">
+      <div class="card-title">2. Voz do Mestre (Captura de Áudio)</div>
+
+      <button class="btn" id="btn-mic" onclick="toggleMic()">
+        🎙️ LIGAR MEU MICROFONE
+      </button>
+
+      <label style="display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 11px; color: #88c088; margin-top: -6px;">
+        <input type="checkbox" id="chk-automic" onchange="toggleAutoMic(this.checked)" style="accent-color: #44cc44;">
+        Iniciar microfone automaticamente ao abrir a página
+      </label>
+
+      <div class="meter-box">
+        <div class="slider-row">
+          <span>Modulação da Boca:</span>
+          <span id="vu-val">0%</span>
+        </div>
+        <div class="vu-bar-wrapper">
+          <div class="vu-bar-fill" id="vu-fill"></div>
+        </div>
+      </div>
+
+      <div class="slider-row">
+        <span>Sensibilidade do Mic:</span>
+        <input type="range" id="sens-slider" min="10" max="50" value="28" oninput="setSens(this.value)">
+      </div>
+      <small style="font-size: 11px; color: #5a8a5a;">
+        * Quando você fala, o queixo do Billy na tela dos jogadores se move em tempo real.
+      </small>
+    </div>
+
+    <!-- CRONÔMETRO -->
+    <div class="card">
+      <div class="card-title">3. Cronômetro da Provação</div>
+
+      <div class="timer-display" id="timer-val">01:00</div>
+
+      <div class="timer-presets">
+        <button onclick="setTimer(60)">60s (Sala 1)</button>
+        <button onclick="setTimer(90)">90s (Sala 2)</button>
+        <button onclick="setTimer(120)">120s (Sala 3)</button>
+        <button onclick="setTimer(180)">180s</button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button class="btn" id="btn-timer" onclick="toggleTimer()">▶ INICIAR</button>
+        <button class="btn danger" onclick="resetTimer()">⟲ RESETAR</button>
+      </div>
+
+      <button class="btn" id="btn-show-timer" onclick="toggleTimerVisibility()">
+        👁️ EXIBIR RELÓGIO NA TELA DOS PLAYERS: LIGADO
+      </button>
+    </div>
+
+  </div>
+
+  <!-- COLUNA 2: TELEPROMPTER DE FITAS (LEITURA DO MESTRE) -->
+  <div class="card">
+    <div class="card-title">
+      <span>4. Roteiro das Fitas (Leia no Microfone)</span>
+      <span style="font-size: 10px; color: #5a8a5a;">Voz rouca e pausada</span>
+    </div>
+
+    <div class="tape-tabs">
+      <button class="tape-tab active" onclick="showTape(1, this)">Sala 01: Despertar</button>
+      <button class="tape-tab" onclick="showTape(2, this)">Sala 02: George</button>
+      <button class="tape-tab" onclick="showTape(3, this)">Alexander (Vitor)</button>
+    </div>
+
+    <!-- FITA 1 -->
+    <div class="tape-content" id="tape-1">
+      <p><strong>"Olá a todos. Eu quero jogar um jogo.</strong></p>
+      <p>A vida inteira vocês viveram puxando a corda cada um para o seu lado. Vocês acumularam seus privilégios, seu dinheiro e sua sobrevivência ignorando que cada passo que davam para frente sufocava aqueles que estavam ao seu redor.</p>
+      <p>Hoje, a física demonstrará essa verdade. As coleiras em seus pescoços estão interligadas por um mesmo eixo dentado. Se um de vocês tentar correr em pânico para salvar a si mesmo, o cabo puxará os outros contra as lâminas circulares que giram atrás de vocês. Se lutarem individualmente, todos morrerão degolados.</p>
+      <p>À frente de cada um de vocês há uma caixa com uma chave mestra. No entanto, o cabo de aço só tem comprimento suficiente se todos vocês avançarem exatamente ao mesmo tempo, passo a passo, em sincronia absoluta. Vocês têm 60 segundos antes que o motor recolha os cabos para o teto.</p>
+      <p><strong>Viver ou morrer? Façam a sua escolha."</strong></p>
+    </div>
+
+    <!-- FITA 2 -->
+    <div class="tape-content" id="tape-2" style="display: none;">
+      <p><strong>"Olá, George. Eu quero jogar um jogo.</strong></p>
+      <p>Durante anos você reclamou do cansaço do trabalho e da lentidão dos dias. Mas quando viu a chance de enriquecer, sua ambição não hesitou: você seduziu, conspirou e arrancou a vida do velho Heitor e de Dona Lurdes. Para você, duas vidas inteiras foram apenas o preço que você pagou para acumular o peso do ouro nos seus bolsos.</p>
+      <p>Agora, George, você terá que pagar pelo seu próprio peso. A porta à sua frente só destrancará quando o prato direito da balança igualar o peso do bloco de ferro: dois quilos e meio.</p>
+      <p>Não há pedras ou objetos soltos nesta sala. O único material disponível é a carne viva daqueles que estão com você. Você sacrificará a sua própria carne para salvar seus companheiros, ou sua ganância o levará a arrancar pedaços daqueles que você acabou de conhecer?</p>
+      <p>Noventa segundos no relógio. <strong>Viver ou morrer, George? Faça a sua escolha."</strong></p>
+    </div>
+
+    <!-- FITA 3 -->
+    <div class="tape-content" id="tape-3" style="display: none;">
+      <p><strong>"Olá, Alexander. Eu quero jogar um jogo.</strong></p>
+      <p>Durante mais de dez anos você construiu seu sustento à base de jaulas de ferro, redes e caixas escuras. Você privou criaturas indefesas da luz do sol, amontoando corpos vivos na sujeira e na asfixia, calculando com frieza que a agonia de dezenas era apenas um preço aceitável para alimentar a sua ganância.</p>
+      <p>Você se considerava o predador supremo, o senhor do destino de seres que não tinham voz para gritar.</p>
+      <p>Hoje, as regras da cadeia alimentar mudaram. O predador foi rastreado, dopado e colocado em sua própria jaula. O mecanismo diante de você foi forjado com as mesmas armadilhas e travas de aço que você espalhou pelo mundo.</p>
+      <p>Quando o cronômetro iniciar, as grades começarão a se fechar em uma prensa inexorável. <strong>Viver ou morrer, Alexander? Faça a sua escolha."</strong></p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   COMUNICAÇÃO LOCAL E P2P PELA INTERNET (WEBRTC)
+   ============================================================ */
+const channel = new BroadcastChannel('jigsaw_tv');
+const ROOM_CODE = 'SESSAO1';
+
+let isLocalConnected = false;
+let remoteClients = [];
+let tvPowered = false;
+let timerVisible = true;
+let noiseVal = 0.88;
+
+const statusBadge = document.getElementById('player-status');
+const statusText = document.getElementById('status-text');
+const btnPower = document.getElementById('btn-power');
+const btnCopyLink = document.getElementById('btn-copy-link');
+
+/* FUNÇÃO CENTRAL DE TRANSMISSÃO (ENVIA PARA TODOS OS DESTINOS) */
+function broadcastAll(msg) {
+  // 1. Canal local (para 2ª tela ou OBS/Discord na mesma máquina)
+  channel.postMessage(msg);
+
+  // 2. Todos os jogadores remotos conectados pela internet via WebRTC
+  remoteClients.forEach(conn => {
+    if (conn.open) {
+      try { conn.send(msg); } catch(e) {}
+    }
+  });
+}
+
+function updateConnectionStatus() {
+  const total = (isLocalConnected ? 1 : 0) + remoteClients.length;
+  if (total > 0) {
+    statusBadge.classList.add('connected');
+    let desc = [];
+    if (isLocalConnected) desc.push('Local ativo');
+    if (remoteClients.length > 0) desc.push(`${remoteClients.length} Remoto(s)`);
+    statusText.innerText = `CONECTADO (${desc.join(' + ')})`;
+  } else {
+    statusBadge.classList.remove('connected');
+    statusText.innerText = 'AGUARDANDO CONEXÕES';
+  }
+}
+
+/* 1. MENSAGENS LOCAIS */
+channel.onmessage = (e) => {
+  const msg = e.data;
+  if (!msg) return;
+
+  if (msg.type === 'PLAYER_READY' || msg.type === 'PONG') {
+    isLocalConnected = true;
+    updateConnectionStatus();
+    if (typeof msg.powered !== 'undefined') {
+      tvPowered = msg.powered;
+      updatePowerBtn();
+    }
+  }
+};
+
+setInterval(() => {
+  channel.postMessage({ type: 'PING' });
+}, 2000);
+
+/* 2. SERVIDOR WEBRTC P2P VIA PEERJS PARA JOGADORES DISTANTES */
+let peer = null;
+if (typeof Peer !== 'undefined') {
+  try {
+    peer = new Peer('jigsaw-gm-' + ROOM_CODE);
+    peer.on('open', (id) => {
+      console.log('Servidor PeerJS iniciado com sucesso:', id);
+    });
+
+    peer.on('connection', (conn) => {
+      conn.on('open', () => {
+        remoteClients.push(conn);
+        updateConnectionStatus();
+        // Envia estado inicial ao novo jogador conectado
+        conn.send({ type: 'POWER', value: tvPowered });
+        conn.send({ type: 'NOISE', value: noiseVal });
+        conn.send({
+          type: 'TIMER',
+          visible: timerVisible,
+          text: formatTime(timerRemaining),
+          warning: timerRemaining <= 10 && timerRemaining > 0
+        });
+      });
+
+      conn.on('close', () => {
+        remoteClients = remoteClients.filter(c => c !== conn);
+        updateConnectionStatus();
+      });
+
+      conn.on('error', () => {
+        remoteClients = remoteClients.filter(c => c !== conn);
+        updateConnectionStatus();
+      });
+    });
+
+    peer.on('error', (err) => {
+      console.log('PeerJS info:', err.type);
+    });
+  } catch(e) {}
+}
+
+function copyPlayerLink() {
+  const url = window.location.href.replace('mestre.html', 'player.html') + '#' + ROOM_CODE;
+  navigator.clipboard.writeText(url).then(() => {
+    btnCopyLink.innerText = '✅ LINK COPIADO!';
+    setTimeout(() => { btnCopyLink.innerText = '📋 COPIAR LINK P/ PLAYERS REMOTOS'; }, 2500);
+  }).catch(() => {
+    prompt('Copie o link abaixo para enviar aos jogadores:', url);
+  });
+}
+
+function updatePowerBtn() {
+  if (tvPowered) {
+    btnPower.classList.add('power-on');
+    btnPower.innerHTML = '⏻ DESLIGAR TV DOS JOGADORES';
+  } else {
+    btnPower.classList.remove('power-on');
+    btnPower.innerHTML = '⏻ LIGAR TV DOS JOGADORES';
+  }
+}
+
+function togglePower() {
+  tvPowered = !tvPowered;
+  updatePowerBtn();
+  broadcastAll({ type: 'POWER', value: tvPowered });
+}
+
+function setNoise(val) {
+  noiseVal = parseFloat(val) / 100;
+  broadcastAll({ type: 'NOISE', value: noiseVal });
+}
+
+/* ============================================================
+   CAPTURA DE MICROFONE DO MESTRE & AUTO-START
+   ============================================================ */
+let actx, analyser, buf, micStream, micOn = false;
+let micSensitivity = 28;
+
+const btnMic = document.getElementById('btn-mic');
+const vuFill = document.getElementById('vu-fill');
+const vuVal = document.getElementById('vu-val');
+const chkAutoMic = document.getElementById('chk-automic');
+
+// Carrega preferência de auto-conectar microfone
+if (localStorage.getItem('jigsaw_automic') === 'true') {
+  chkAutoMic.checked = true;
+  // Conecta automaticamente após breve delay
+  setTimeout(() => { if (!micOn) toggleMic(); }, 600);
+}
+
+function toggleAutoMic(checked) {
+  localStorage.setItem('jigsaw_automic', checked ? 'true' : 'false');
+}
+
+function setSens(val) {
+  micSensitivity = parseFloat(val);
+}
+
+async function toggleMic() {
+  if (micOn) {
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    micOn = false;
+    btnMic.classList.remove('active');
+    btnMic.innerHTML = '🎙️ LIGAR MEU MICROFONE';
+    vuFill.style.width = '0%';
+    vuVal.innerText = '0%';
+    broadcastAll({ type: 'AUDIO_LEVEL', value: 0 });
+    return;
+  }
+
+  try {
+    actx = actx || new AudioContext();
+    if (actx.state === 'suspended') await actx.resume();
+
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false }
+    });
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.15;
+    actx.createMediaStreamSource(micStream).connect(analyser);
+    buf = new Float32Array(analyser.fftSize);
+
+    micOn = true;
+    btnMic.classList.add('active');
+    btnMic.innerHTML = '🔴 MICROFONE TRANSMITINDO AO VIVO';
+    processMic();
+  } catch (err) {
+    console.warn('Microfone requer clique do usuário ou permissão salva:', err.message);
+  }
+}
+
+function processMic() {
+  if (!micOn) return;
+
+  analyser.getFloatTimeDomainData(buf);
+  let s = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = buf[i];
+    s += v * v;
+  }
+  const rms = Math.sqrt(s / buf.length);
+  const gate = 0.003;
+  let norm = 0;
+  if (rms > gate) {
+    norm = Math.min(1, (rms - gate) * micSensitivity);
+  }
+
+  vuFill.style.width = Math.round(norm * 100) + '%';
+  vuVal.innerText = Math.round(norm * 100) + '%';
+
+  // Transmite para todos os destinos simultaneamente
+  broadcastAll({ type: 'AUDIO_LEVEL', value: norm });
+
+  requestAnimationFrame(processMic);
+}
+
+/* ============================================================
+   SISTEMA DE CRONÔMETRO SINCRONIZADO
+   ============================================================ */
+let timerDuration = 60;
+let timerRemaining = 60;
+let timerInterval = null;
+let isTimerRunning = false;
+
+const timerVal = document.getElementById('timer-val');
+const btnTimer = document.getElementById('btn-timer');
+const btnShowTimer = document.getElementById('btn-show-timer');
+
+function formatTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+
+function syncTimer() {
+  const text = formatTime(timerRemaining);
+  timerVal.innerText = text;
+  broadcastAll({
+    type: 'TIMER',
+    visible: timerVisible,
+    text: text,
+    warning: timerRemaining <= 10 && timerRemaining > 0
+  });
+}
+
+function setTimer(sec) {
+  clearInterval(timerInterval);
+  isTimerRunning = false;
+  btnTimer.innerHTML = '▶ INICIAR';
+  btnTimer.classList.remove('active');
+  timerDuration = sec;
+  timerRemaining = sec;
+  syncTimer();
+}
+
+function toggleTimer() {
+  if (!isTimerRunning) {
+    if (timerRemaining <= 0) timerRemaining = timerDuration;
+    isTimerRunning = true;
+    btnTimer.innerHTML = '⏸ PAUSAR';
+    btnTimer.classList.add('active');
+
+    timerInterval = setInterval(() => {
+      timerRemaining--;
+      syncTimer();
+      if (timerRemaining <= 0) {
+        clearInterval(timerInterval);
+        isTimerRunning = false;
+        btnTimer.innerHTML = '▶ INICIAR';
+        btnTimer.classList.remove('active');
+      }
+    }, 1000);
+  } else {
+    clearInterval(timerInterval);
+    isTimerRunning = false;
+    btnTimer.innerHTML = '▶ CONTINUAR';
+    btnTimer.classList.remove('active');
+  }
+}
+
+function resetTimer() {
+  clearInterval(timerInterval);
+  isTimerRunning = false;
+  btnTimer.innerHTML = '▶ INICIAR';
+  btnTimer.classList.remove('active');
+  timerRemaining = timerDuration;
+  syncTimer();
+}
+
+function toggleTimerVisibility() {
+  timerVisible = !timerVisible;
+  btnShowTimer.innerHTML = `👁️ EXIBIR RELÓGIO NA TELA DOS PLAYERS: ${timerVisible ? 'LIGADO' : 'OCULTO'}`;
+  syncTimer();
+}
+
+/* ============================================================
+   TABS DO TELEPROMPTER DE FITAS
+   ============================================================ */
+function showTape(num, tab) {
+  document.querySelectorAll('.tape-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tape-content').forEach(c => c.style.display = 'none');
+  tab.classList.add('active');
+  document.getElementById(`tape-${num}`).style.display = 'block';
+}
+
+syncTimer();
+</script>
+</body>
+</html>
