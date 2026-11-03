@@ -344,6 +344,10 @@
       <button class="btn" id="btn-show-timer" onclick="toggleTimerVisibility()">
         👁️ EXIBIR RELÓGIO NA TELA DOS PLAYERS: LIGADO
       </button>
+
+      <button class="btn" id="btn-timer-mode" onclick="toggleTimerCenterMode()">
+        ⏳ MOSTRAR APENAS TIMER NO CENTRO: DESATIVADO
+      </button>
     </div>
 
   </div>
@@ -402,6 +406,7 @@ let isLocalConnected = false;
 let remoteClients = [];
 let tvPowered = false;
 let timerVisible = true;
+let timerCenterMode = false;
 let noiseVal = 0.88;
 
 const statusBadge = document.getElementById('player-status');
@@ -471,6 +476,7 @@ if (typeof Peer !== 'undefined') {
         // Envia estado inicial ao novo jogador conectado
         conn.send({ type: 'POWER', value: tvPowered });
         conn.send({ type: 'NOISE', value: noiseVal });
+        conn.send({ type: 'TIMER_MODE', value: timerCenterMode ? 'center' : 'normal' });
         conn.send({
           type: 'TIMER',
           visible: timerVisible,
@@ -689,6 +695,19 @@ function toggleTimerVisibility() {
   timerVisible = !timerVisible;
   btnShowTimer.innerHTML = `👁️ EXIBIR RELÓGIO NA TELA DOS PLAYERS: ${timerVisible ? 'LIGADO' : 'OCULTO'}`;
   syncTimer();
+}
+
+const btnTimerMode = document.getElementById('btn-timer-mode');
+function toggleTimerCenterMode() {
+  timerCenterMode = !timerCenterMode;
+  if (timerCenterMode) {
+    btnTimerMode.classList.add('active');
+    btnTimerMode.innerHTML = '⏳ MODO TIMER NO CENTRO: ATIVADO (TELA ESCURA)';
+  } else {
+    btnTimerMode.classList.remove('active');
+    btnTimerMode.innerHTML = '⏳ MOSTRAR APENAS TIMER NO CENTRO: DESATIVADO';
+  }
+  broadcastAll({ type: 'TIMER_MODE', value: timerCenterMode ? 'center' : 'normal' });
 }
 
 /* ============================================================
