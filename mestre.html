@@ -420,6 +420,7 @@ const btnCopyLink = document.getElementById('btn-copy-link');
 
 /* MQTT EM NUVEM VIA WEBSOCKET SEGURO (CONEXÃO GARANTIDA) */
 const MQTT_TOPIC_STATE = `jigsaw_saw_rpg/${ROOM_CODE}/state`;
+const MQTT_TOPIC_COMMAND = `jigsaw_saw_rpg/${ROOM_CODE}/command`;
 const MQTT_TOPIC_AUDIO = `jigsaw_saw_rpg/${ROOM_CODE}/audio`;
 let mqttClient = null;
 
@@ -432,7 +433,7 @@ function initMqtt() {
       isMqttConnected = false;
       updateConnectionStatus();
       console.warn('MQTT desconectado:', res.errorMessage);
-      setTimeout(initMqtt, 2000);
+      setTimeout(initMqtt, 1500);
     };
     mqttClient.connect({
       useSSL: true,
@@ -446,11 +447,11 @@ function initMqtt() {
       },
       onFailure: () => {
         isMqttConnected = false;
-        setTimeout(initMqttFallback, 2500);
+        setTimeout(initMqttFallback, 2000);
       }
     });
   } catch(e) {
-    setTimeout(initMqttFallback, 3000);
+    setTimeout(initMqttFallback, 2500);
   }
 }
 
@@ -459,7 +460,7 @@ function initMqttFallback() {
   const clientId = 'jigsaw_gm_' + Math.random().toString(16).substr(2, 8);
   try {
     mqttClient = new Paho.MQTT.Client('broker.hivemq.com', 8884, '/mqtt', clientId);
-    mqttClient.onConnectionLost = () => { setTimeout(initMqtt, 3000); };
+    mqttClient.onConnectionLost = () => { setTimeout(initMqtt, 2000); };
     mqttClient.connect({
       useSSL: true,
       timeout: 5,
@@ -469,7 +470,7 @@ function initMqttFallback() {
         updateConnectionStatus();
         publishMqttState(true);
       },
-      onFailure: () => { setTimeout(initMqtt, 4000); }
+      onFailure: () => { setTimeout(initMqtt, 3000); }
     });
   } catch(e) {}
 }
@@ -495,6 +496,17 @@ function publishMqttState(retained = true) {
   } catch(e) {}
 }
 
+function publishMqttCommand(obj) {
+  if (!mqttClient || !isMqttConnected) return;
+  try {
+    const message = new Paho.MQTT.Message(JSON.stringify(obj));
+    message.destinationName = MQTT_TOPIC_COMMAND;
+    message.retained = false;
+    message.qos = 1;
+    mqttClient.send(message);
+  } catch(e) {}
+}
+
 function publishMqttAudio(level) {
   if (!mqttClient || !isMqttConnected) return;
   try {
@@ -513,11 +525,12 @@ function broadcastAll(msg) {
   // 1. Canal local (para 2ª tela ou OBS/Discord na mesma máquina)
   channel.postMessage(msg);
 
-  // 2. MQTT em nuvem com retenção de estado
+  // 2. MQTT em nuvem (Disparo redundante duplo para garantia de 100%)
   if (msg.type === 'AUDIO_LEVEL') {
     publishMqttAudio(msg.value);
   } else {
     publishMqttState(true);
+    publishMqttCommand(msg);
   }
 }
 
@@ -645,6 +658,9 @@ async function toggleMic() {
   }
 }
 
+let lastMqttAudioTime = 0;
+let lastSentAudioNorm = 0;
+
 function processMic() {
   if (!micOn) return;
 
@@ -661,11 +677,20 @@ function processMic() {
     norm = Math.min(1, (rms - gate) * micSensitivity);
   }
 
+  // Atualização visual local imediata (60fps)
   vuFill.style.width = Math.round(norm * 100) + '%';
   vuVal.innerText = Math.round(norm * 100) + '%';
 
-  // Transmite para todos os destinos simultaneamente
-  broadcastAll({ type: 'AUDIO_LEVEL', value: norm });
+  // 1. Canal local na mesma máquina (tempo real instantâneo)
+  channel.postMessage({ type: 'AUDIO_LEVEL', value: norm });
+
+  // 2. Throttle para a nuvem MQTT (máximo 8 atualizações/seg para estabilidade total do broker)
+  const now = performance.now();
+  if (now - lastMqttAudioTime > 120 || (norm === 0 && lastSentAudioNorm > 0)) {
+    lastMqttAudioTime = now;
+    lastSentAudioNorm = norm;
+    publishMqttAudio(norm);
+  }
 
   requestAnimationFrame(processMic);
 }

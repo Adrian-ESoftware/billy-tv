@@ -15,7 +15,8 @@
     background: #000;
     transform-origin: center;
   }
-  #tube.off { transform: scale(0, 0); }
+  #tube.off { transform: scale(0, 0); opacity: 0; }
+  #tube.on  { transform: scale(1, 1); opacity: 1; }
   #tube.turning-on  { animation: crtOn 0.75s cubic-bezier(.2,.9,.3,1) forwards; }
   #tube.turning-off { animation: crtOff 0.45s cubic-bezier(.6,0,.9,.4) forwards; }
 
@@ -404,16 +405,33 @@ function crtSound(on) {
   } catch(e) {}
 }
 
+let tubeTimer = null;
+
 function setPower(on) {
   if (powered === on) return;
   powered = on;
   crtSound(powered);
-  tube.classList.remove('off', 'turning-on', 'turning-off');
+  clearTimeout(tubeTimer);
+
+  tube.classList.remove('off', 'on', 'turning-on', 'turning-off');
   void tube.offsetWidth;
+
   if (powered) {
     tube.classList.add('turning-on');
+    tubeTimer = setTimeout(() => {
+      if (powered) {
+        tube.classList.remove('turning-on');
+        tube.classList.add('on');
+      }
+    }, 750);
   } else {
     tube.classList.add('turning-off');
+    tubeTimer = setTimeout(() => {
+      if (!powered) {
+        tube.classList.remove('turning-off');
+        tube.classList.add('off');
+      }
+    }, 450);
   }
 }
 
