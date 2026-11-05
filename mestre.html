@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Painel do Mestre - Controle do Jigsaw</title>
+<script src="paho-mqtt.min.js"></script>
 <script src="peerjs.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -403,12 +404,13 @@
 
 <script>
 /* ============================================================
-   COMUNICAÇÃO LOCAL E P2P PELA INTERNET (WEBRTC)
+   COMUNICAÇÃO LOCAL, MQTT WEBSOCKET SEGURO E WEBRTC P2P
    ============================================================ */
 const channel = new BroadcastChannel('jigsaw_tv');
 const ROOM_CODE = 'SESSAO1';
 
 let isLocalConnected = false;
+let isMqttConnected = false;
 let remoteClients = [];
 let tvPowered = false;
 let timerVisible = true;
@@ -420,12 +422,109 @@ const statusText = document.getElementById('status-text');
 const btnPower = document.getElementById('btn-power');
 const btnCopyLink = document.getElementById('btn-copy-link');
 
+/* MQTT EM NUVEM VIA WEBSOCKET SEGURO (CONEXÃO GARANTIDA) */
+const MQTT_TOPIC_STATE = `jigsaw_saw_rpg/${ROOM_CODE}/state`;
+const MQTT_TOPIC_AUDIO = `jigsaw_saw_rpg/${ROOM_CODE}/audio`;
+let mqttClient = null;
+
+function initMqtt() {
+  if (typeof Paho === 'undefined') return;
+  const clientId = 'jigsaw_gm_' + Math.random().toString(16).substr(2, 8);
+  try {
+    mqttClient = new Paho.MQTT.Client('broker.emqx.io', 8084, '/mqtt', clientId);
+    mqttClient.onConnectionLost = (res) => {
+      isMqttConnected = false;
+      updateConnectionStatus();
+      console.warn('MQTT desconectado:', res.errorMessage);
+      setTimeout(initMqtt, 2000);
+    };
+    mqttClient.connect({
+      useSSL: true,
+      timeout: 5,
+      keepAliveInterval: 30,
+      onSuccess: () => {
+        isMqttConnected = true;
+        console.log('✅ MQTT conectado com sucesso ao broker global WSS!');
+        updateConnectionStatus();
+        publishMqttState(true);
+      },
+      onFailure: () => {
+        isMqttConnected = false;
+        setTimeout(initMqttFallback, 2500);
+      }
+    });
+  } catch(e) {
+    setTimeout(initMqttFallback, 3000);
+  }
+}
+
+function initMqttFallback() {
+  if (typeof Paho === 'undefined') return;
+  const clientId = 'jigsaw_gm_' + Math.random().toString(16).substr(2, 8);
+  try {
+    mqttClient = new Paho.MQTT.Client('broker.hivemq.com', 8884, '/mqtt', clientId);
+    mqttClient.onConnectionLost = () => { setTimeout(initMqtt, 3000); };
+    mqttClient.connect({
+      useSSL: true,
+      timeout: 5,
+      onSuccess: () => {
+        isMqttConnected = true;
+        console.log('✅ MQTT conectado via HiveMQ fallback!');
+        updateConnectionStatus();
+        publishMqttState(true);
+      },
+      onFailure: () => { setTimeout(initMqtt, 4000); }
+    });
+  } catch(e) {}
+}
+
+function publishMqttState(retained = true) {
+  if (!mqttClient || !isMqttConnected) return;
+  try {
+    const payload = JSON.stringify({
+      type: 'STATE_SYNC',
+      powered: tvPowered,
+      noise: noiseVal,
+      timerMode: timerCenterMode ? 'center' : 'normal',
+      timerVisible: timerVisible,
+      timerText: formatTime(timerRemaining),
+      timerWarning: timerRemaining <= 10 && timerRemaining > 0,
+      timestamp: Date.now()
+    });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = MQTT_TOPIC_STATE;
+    message.retained = retained;
+    message.qos = 1;
+    mqttClient.send(message);
+  } catch(e) {}
+}
+
+function publishMqttAudio(level) {
+  if (!mqttClient || !isMqttConnected) return;
+  try {
+    const message = new Paho.MQTT.Message(JSON.stringify({ type: 'AUDIO_LEVEL', value: level }));
+    message.destinationName = MQTT_TOPIC_AUDIO;
+    message.qos = 0;
+    mqttClient.send(message);
+  } catch(e) {}
+}
+
+// Inicia MQTT
+initMqtt();
+
 /* FUNÇÃO CENTRAL DE TRANSMISSÃO (ENVIA PARA TODOS OS DESTINOS) */
 function broadcastAll(msg) {
-  // 1. Canal local (para 2ª tela ou OBS/Discord na mesma máquina)
+  // 1. Canal local
   channel.postMessage(msg);
 
-  // 2. Todos os jogadores remotos conectados pela internet via WebRTC
+  // 2. MQTT em nuvem com retenção de estado
+  if (msg.type === 'AUDIO_LEVEL') {
+    publishMqttAudio(msg.value);
+  } else {
+    publishMqttState(true);
+  }
+
+  // 3. WebRTC P2P de contingência
   remoteClients.forEach(conn => {
     if (conn.open) {
       try { conn.send(msg); } catch(e) {}
@@ -434,16 +533,17 @@ function broadcastAll(msg) {
 }
 
 function updateConnectionStatus() {
-  const total = (isLocalConnected ? 1 : 0) + remoteClients.length;
-  if (total > 0) {
+  const isOnline = isMqttConnected || remoteClients.length > 0 || isLocalConnected;
+  if (isOnline) {
     statusBadge.classList.add('connected');
     let desc = [];
-    if (isLocalConnected) desc.push('Local ativo');
-    if (remoteClients.length > 0) desc.push(`${remoteClients.length} Remoto(s)`);
-    statusText.innerText = `CONECTADO (${desc.join(' + ')})`;
+    if (isMqttConnected) desc.push('Nuvem Ativa');
+    if (isLocalConnected) desc.push('Local');
+    if (remoteClients.length > 0) desc.push(`${remoteClients.length} P2P`);
+    statusText.innerText = `TRANSMITINDO (${desc.join(' + ')})`;
   } else {
     statusBadge.classList.remove('connected');
-    statusText.innerText = 'AGUARDANDO CONEXÕES';
+    statusText.innerText = 'CONECTANDO À NUVEM...';
   }
 }
 

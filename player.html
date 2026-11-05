@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Billy TV - Tela dos Jogadores</title>
+<script src="paho-mqtt.min.js"></script>
 <script src="peerjs.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -230,69 +231,9 @@
     box-shadow: 0 0 10px #ff2222; animation: blink 1.2s step-start infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
-
-  /* INDICADOR DISCRETO DE STATUS P2P */
-  #p2p-hud {
-    position: fixed;
-    top: 14px;
-    right: 18px;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-    letter-spacing: 1px;
-    padding: 6px 12px;
-    border-radius: 4px;
-    background: rgba(10, 15, 12, 0.85);
-    border: 1px solid #1a331a;
-    color: #88c088;
-    z-index: 9999;
-    pointer-events: none;
-    transition: opacity 0.5s ease;
-    text-transform: uppercase;
-  }
-  #p2p-hud.connected {
-    color: #44ff44;
-    border-color: #2e662e;
-    box-shadow: 0 0 8px rgba(68, 255, 68, 0.2);
-  }
-  #p2p-hud.connecting {
-    color: #f59e0b;
-    border-color: #78350f;
-  }
-
-  /* MENSAGEM QUANDO A TV DO MESTRE ESTÁ DESLIGADA */
-  #standby-msg {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 12px;
-    color: #1e3a24;
-    font-family: 'Courier New', monospace;
-    font-size: 13px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    z-index: 1;
-    pointer-events: none;
-    text-align: center;
-    padding: 20px;
-    user-select: none;
-  }
-  #standby-msg.hidden {
-    display: none;
-  }
 </style>
 </head>
 <body>
-
-<div id="p2p-hud" class="connecting">📡 CONECTANDO AO MESTRE...</div>
-
-<div id="standby-msg">
-  <div style="font-size: 26px; color: #2e5536;">[ TELA EM ESPERA ]</div>
-  <div>Sinal conectado • Aguardando o Mestre ligar a transmissão</div>
-  <div style="font-size: 10px; color: #162a1b; margin-top: 10px;">(Clique em qualquer lugar da tela para habilitar o áudio do navegador)</div>
-</div>
 
 <!-- FILTRO VERDE-ÁGUA ANALÓGICO -->
 <svg width="0" height="0" style="position:absolute">
@@ -464,9 +405,6 @@ function crtSound(on) {
   } catch(e) {}
 }
 
-const standbyMsg = document.getElementById('standby-msg');
-const p2pHud = document.getElementById('p2p-hud');
-
 function setPower(on) {
   if (powered === on) return;
   powered = on;
@@ -475,33 +413,26 @@ function setPower(on) {
   void tube.offsetWidth;
   if (powered) {
     tube.classList.add('turning-on');
-    if (standbyMsg) standbyMsg.classList.add('hidden');
-    if (p2pHud) p2pHud.style.opacity = '0'; // Camufla HUD para imersão total
   } else {
     tube.classList.add('turning-off');
-    setTimeout(() => {
-      if (!powered && standbyMsg) standbyMsg.classList.remove('hidden');
-      if (p2pHud) p2pHud.style.opacity = '1';
-    }, 450);
   }
 }
 
-/* PROCESSAMENTO UNIFICADO DE MENSAGENS (LOCAL OU INTERNET) */
+/* PROCESSAMENTO UNIFICADO DE MENSAGENS (LOCAL, NUVEM OU P2P) */
 function handleIncomingMessage(msg) {
   if (!msg) return;
 
   if (msg.type === 'STATE_SYNC') {
-    // Sincronização automática contínua de estado
     if (msg.powered !== powered) {
       setPower(msg.powered);
     }
-    noiseIntensity = msg.noise;
+    if (typeof msg.noise !== 'undefined') noiseIntensity = msg.noise;
     if (msg.timerMode === 'center') {
       tube.classList.add('center-timer-mode');
     } else {
       tube.classList.remove('center-timer-mode');
     }
-    if (centerTimerDigits) {
+    if (centerTimerDigits && msg.timerText) {
       centerTimerDigits.innerText = msg.timerText;
       if (msg.timerWarning) centerTimerDigits.classList.add('warning');
       else centerTimerDigits.classList.remove('warning');
@@ -509,14 +440,13 @@ function handleIncomingMessage(msg) {
     if (msg.timerVisible) {
       osdTimer.classList.add('visible');
       osdRec.classList.add('visible');
-      osdTimer.innerText = msg.timerText;
+      if (msg.timerText) osdTimer.innerText = msg.timerText;
       if (msg.timerWarning) osdTimer.classList.add('warning');
       else osdTimer.classList.remove('warning');
     } else {
       osdTimer.classList.remove('visible');
       osdRec.classList.remove('visible');
     }
-    updateHudStatus(true, 'SINAL SINTONIZADO');
     return;
   }
 
@@ -560,17 +490,75 @@ channel.onmessage = (e) => {
 };
 channel.postMessage({ type: 'PLAYER_READY' });
 
-/* 2. CONEXÃO P2P PELA INTERNET (PARA JOGADORES QUE MORAM LONGE) */
-const roomCode = location.hash.replace('#', '').trim() || new URLSearchParams(location.search).get('room') || 'SESSAO1';
+/* 2. CONEXÃO EM NUVEM VIA MQTT WEBSOCKET SEGURO (INFALÍVEL) */
+const roomCode = (location.hash.replace('#', '').trim() || new URLSearchParams(location.search).get('room') || 'SESSAO1').toUpperCase();
+const MQTT_TOPIC_BASE = `jigsaw_saw_rpg/${roomCode}/#`;
+let mqttClient = null;
 
+function initPlayerMqtt() {
+  if (typeof Paho === 'undefined') return;
+  const clientId = 'player_' + Math.random().toString(16).substr(2, 8);
+  try {
+    mqttClient = new Paho.MQTT.Client('broker.emqx.io', 8084, '/mqtt', clientId);
+    mqttClient.onConnectionLost = () => {
+      setTimeout(initPlayerMqtt, 2000);
+    };
+    mqttClient.onMessageArrived = (message) => {
+      try {
+        const data = JSON.parse(message.payloadString);
+        handleIncomingMessage(data);
+      } catch(e) {}
+    };
+    mqttClient.connect({
+      useSSL: true,
+      timeout: 5,
+      keepAliveInterval: 30,
+      onSuccess: () => {
+        console.log('✅ Player conectado ao broker seguro MQTT!');
+        mqttClient.subscribe(MQTT_TOPIC_BASE);
+      },
+      onFailure: () => {
+        setTimeout(initPlayerMqttFallback, 2500);
+      }
+    });
+  } catch(e) {
+    setTimeout(initPlayerMqttFallback, 3000);
+  }
+}
+
+function initPlayerMqttFallback() {
+  if (typeof Paho === 'undefined') return;
+  const clientId = 'player_' + Math.random().toString(16).substr(2, 8);
+  try {
+    mqttClient = new Paho.MQTT.Client('broker.hivemq.com', 8884, '/mqtt', clientId);
+    mqttClient.onConnectionLost = () => { setTimeout(initPlayerMqtt, 3000); };
+    mqttClient.onMessageArrived = (message) => {
+      try {
+        const data = JSON.parse(message.payloadString);
+        handleIncomingMessage(data);
+      } catch(e) {}
+    };
+    mqttClient.connect({
+      useSSL: true,
+      timeout: 5,
+      onSuccess: () => {
+        console.log('✅ Player conectado via HiveMQ fallback!');
+        mqttClient.subscribe(MQTT_TOPIC_BASE);
+      },
+      onFailure: () => { setTimeout(initPlayerMqtt, 4000); }
+    });
+  } catch(e) {}
+}
+
+initPlayerMqtt();
+
+/* 3. CONEXÃO WEBRTC P2P DE CONTINGÊNCIA */
 const PEER_CONFIG = {
-  debug: 1,
+  debug: 0,
   config: {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun.cloudflare.com:3478' }
     ]
   }
@@ -578,104 +566,39 @@ const PEER_CONFIG = {
 
 let peer = null;
 let activeConn = null;
-let reconnectTimer = null;
-
-function updateHudStatus(connected, text) {
-  if (!p2pHud) return;
-  p2pHud.innerText = text;
-  if (connected) {
-    p2pHud.className = 'connected';
-  } else {
-    p2pHud.className = 'connecting';
-  }
-}
 
 function initPlayerPeer() {
   if (typeof Peer === 'undefined') return;
-  if (peer && !peer.destroyed) {
-    try { peer.destroy(); } catch(e) {}
-  }
-
-  updateHudStatus(false, 'CONECTANDO AO SERVIDOR P2P...');
-
   try {
     peer = new Peer(PEER_CONFIG);
-
     peer.on('open', () => {
-      console.log('Peer do jogador pronto.');
       connectToRemoteGM(roomCode);
     });
-
-    peer.on('error', (err) => {
-      console.warn('Peer error no player:', err.type);
-      if (err.type === 'peer-unavailable') {
-        updateHudStatus(false, 'AGUARDANDO O MESTRE TRANSMITIR...');
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => connectToRemoteGM(roomCode), 2000);
-      } else {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => initPlayerPeer(), 3500);
-      }
+    peer.on('error', () => {
+      setTimeout(initPlayerPeer, 5000);
     });
-
-    peer.on('disconnected', () => {
-      try { peer.reconnect(); } catch(e) {}
-    });
-
-  } catch(e) {
-    setTimeout(initPlayerPeer, 3000);
-  }
+  } catch(e) {}
 }
 
 function connectToRemoteGM(code) {
-  if (!peer || peer.destroyed) {
-    initPlayerPeer();
-    return;
-  }
-  const targetId = 'jigsaw-gm-' + code.toUpperCase();
-  updateHudStatus(false, 'LOCALIZANDO TRANSMISSÃO DO MESTRE...');
-
+  if (!peer || peer.destroyed) return;
   try {
-    const conn = peer.connect(targetId, { reliable: true });
+    const conn = peer.connect('jigsaw-gm-' + code, { reliable: true });
     activeConn = conn;
-
-    conn.on('open', () => {
-      console.log('Conectado ao Mestre com sucesso!');
-      updateHudStatus(true, 'SINAL SINTONIZADO');
-      conn.send({ type: 'PLAYER_CONNECTED' });
-    });
-
     conn.on('data', (data) => {
       handleIncomingMessage(data);
     });
-
     conn.on('close', () => {
-      console.warn('Conexão P2P fechada. Reconectando...');
-      updateHudStatus(false, 'SINAL PERDIDO. RECONECTANDO...');
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(() => connectToRemoteGM(code), 2000);
+      setTimeout(() => connectToRemoteGM(code), 3000);
     });
-
-    conn.on('error', (err) => {
-      console.error('Erro na conexão com GM:', err);
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(() => connectToRemoteGM(code), 2500);
-    });
-  } catch(e) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => connectToRemoteGM(code), 3000);
-  }
+  } catch(e) {}
 }
 
-// Inicia peer do player
 initPlayerPeer();
 
-// Destrava áudio do navegador e força reconexão ao clicar
+// Destrava áudio do navegador ao clicar na tela preta
 window.addEventListener('click', () => {
   ensureAudio();
-  if (!activeConn || !activeConn.open) {
-    connectToRemoteGM(roomCode);
-  }
 });
 
 /* ============================================================
