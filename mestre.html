@@ -270,6 +270,9 @@
       <div class="status-dot"></div>
       <span id="status-text">AGUARDANDO CONEXÕES</span>
     </div>
+    <button class="open-link" onclick="restartPeerServer()" title="Reiniciar servidor P2P caso oscile a conexão" style="cursor: pointer; background: #1a221a; border-color: #3b5c3b; color: #a3cfa3;">
+      🔄 RECONECTAR SERVIDOR
+    </button>
   </div>
 </header>
 
@@ -367,11 +370,14 @@
 
     <!-- FITA 1 -->
     <div class="tape-content" id="tape-1">
-      <p><strong>"Olá a todos. Eu quero jogar um jogo.</strong></p>
-      <p>A vida inteira vocês viveram puxando a corda cada um para o seu lado. Vocês acumularam seus privilégios, seu dinheiro e sua sobrevivência ignorando que cada passo que davam para frente sufocava aqueles que estavam ao seu redor.</p>
-      <p>Hoje, a física demonstrará essa verdade. As coleiras em seus pescoços estão interligadas por um mesmo eixo dentado. Se um de vocês tentar correr em pânico para salvar a si mesmo, o cabo puxará os outros contra as lâminas circulares que giram atrás de vocês. Se lutarem individualmente, todos morrerão degolados.</p>
-      <p>À frente de cada um de vocês há uma caixa com uma chave mestra. No entanto, o cabo de aço só tem comprimento suficiente se todos vocês avançarem exatamente ao mesmo tempo, passo a passo, em sincronia absoluta. Vocês têm 60 segundos antes que o motor recolha os cabos para o teto.</p>
-      <p><strong>Viver ou morrer? Façam a sua escolha."</strong></p>
+      <p><strong>"Olá a todos.</strong></p>
+      <p>A maioria das pessoas é ingrata pelo simples fato de estar viva. Vocês passam os dias absortos em suas próprias ambições, suas rotinas e seus desejos imediatos, tratando o fôlego em seus pulmões como uma garantia inabalável.</p>
+      <p>Hoje, essa garantia foi revogada.</p>
+      <p>As coleiras em seus pescoços estão interligadas por um mesmo conjunto de roldanas e contrapesos. O instinto mais primitivo de vocês gritará para que corram e tentem salvar a própria pele. Mas se um de vocês se atirar à frente em desespero, o cabo consumirá toda a folga e arrastará aqueles que estão ao seu redor contra as lâminas industriais que giram nas paredes.</p>
+      <p>Para sobreviver nesta sala, vocês não precisarão de força ou velocidade. Precisarão de algo muito mais difícil: olhar nos olhos de um completo estranho, conter o pânico e confiar que ele fará o mesmo.</p>
+      <p>À frente de cada um há uma caixa com uma chave mestra. Se derem passos calmos e sincronizados, todos alcançarão a salvação. Se escolherem o egoísmo, morrerão asfixiados e mutilados juntos.</p>
+      <p>Viver ou morrer? Façam a sua escolha...</p>
+      <p><strong>E que comecem os jogos."</strong></p>
     </div>
 
     <!-- FITA 2 -->
@@ -461,28 +467,55 @@ setInterval(() => {
 }, 2000);
 
 /* 2. SERVIDOR WEBRTC P2P VIA PEERJS PARA JOGADORES DISTANTES */
+const PEER_CONFIG = {
+  debug: 1,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' }
+    ]
+  }
+};
+
 let peer = null;
-if (typeof Peer !== 'undefined') {
+let peerInitTimer = null;
+
+function initPeerServer() {
+  if (typeof Peer === 'undefined') return;
+  if (peer && !peer.destroyed) {
+    try { peer.destroy(); } catch(e) {}
+  }
+
+  const targetId = 'jigsaw-gm-' + ROOM_CODE;
+  console.log('Iniciando servidor PeerJS como:', targetId);
+  statusText.innerText = 'CONECTANDO AO SERVIDOR P2P...';
+
   try {
-    peer = new Peer('jigsaw-gm-' + ROOM_CODE);
+    peer = new Peer(targetId, PEER_CONFIG);
+
     peer.on('open', (id) => {
-      console.log('Servidor PeerJS iniciado com sucesso:', id);
+      console.log('Servidor PeerJS ativo e pronto:', id);
+      updateConnectionStatus();
     });
 
     peer.on('connection', (conn) => {
       conn.on('open', () => {
+        // Remove conexões duplicadas para o mesmo peer
+        remoteClients = remoteClients.filter(c => c.peer !== conn.peer);
         remoteClients.push(conn);
         updateConnectionStatus();
-        // Envia estado inicial ao novo jogador conectado
-        conn.send({ type: 'POWER', value: tvPowered });
-        conn.send({ type: 'NOISE', value: noiseVal });
-        conn.send({ type: 'TIMER_MODE', value: timerCenterMode ? 'center' : 'normal' });
-        conn.send({
-          type: 'TIMER',
-          visible: timerVisible,
-          text: formatTime(timerRemaining),
-          warning: timerRemaining <= 10 && timerRemaining > 0
-        });
+
+        // Envia estado imediato
+        sendSyncToClient(conn);
+      });
+
+      conn.on('data', (data) => {
+        if (data && data.type === 'PLAYER_CONNECTED') {
+          sendSyncToClient(conn);
+        }
       });
 
       conn.on('close', () => {
@@ -497,10 +530,73 @@ if (typeof Peer !== 'undefined') {
     });
 
     peer.on('error', (err) => {
-      console.log('PeerJS info:', err.type);
+      console.warn('PeerJS status:', err.type, err);
+      if (err.type === 'unavailable-id') {
+        statusText.innerText = 'SESSÃO ANTERIOR FECHANDO... AGUARDE';
+        clearTimeout(peerInitTimer);
+        peerInitTimer = setTimeout(initPeerServer, 2000);
+      } else if (err.type === 'disconnected' || err.type === 'network') {
+        statusText.innerText = 'RECONECTANDO SERVIDOR...';
+        clearTimeout(peerInitTimer);
+        peerInitTimer = setTimeout(initPeerServer, 3000);
+      }
+    });
+
+    peer.on('disconnected', () => {
+      console.log('PeerJS desconectado. Reconectando...');
+      try { peer.reconnect(); } catch(e) {}
+    });
+
+  } catch(e) {
+    console.error('Falha ao inicializar PeerJS:', e);
+  }
+}
+
+function sendSyncToClient(conn) {
+  if (!conn || !conn.open) return;
+  try {
+    conn.send({
+      type: 'STATE_SYNC',
+      powered: tvPowered,
+      noise: noiseVal,
+      timerMode: timerCenterMode ? 'center' : 'normal',
+      timerVisible: timerVisible,
+      timerText: formatTime(timerRemaining),
+      timerWarning: timerRemaining <= 10 && timerRemaining > 0
     });
   } catch(e) {}
 }
+
+function restartPeerServer() {
+  remoteClients = [];
+  initPeerServer();
+}
+
+// Inicia servidor WebRTC
+initPeerServer();
+
+// Heartbeat contínuo de sincronização a cada 1 segundo (Garante que nenhum player perca o estado!)
+setInterval(() => {
+  const syncMsg = {
+    type: 'STATE_SYNC',
+    powered: tvPowered,
+    noise: noiseVal,
+    timerMode: timerCenterMode ? 'center' : 'normal',
+    timerVisible: timerVisible,
+    timerText: formatTime(timerRemaining),
+    timerWarning: timerRemaining <= 10 && timerRemaining > 0
+  };
+
+  // 1. Canal local
+  channel.postMessage(syncMsg);
+
+  // 2. Todos os remotos
+  remoteClients.forEach(conn => {
+    if (conn.open) {
+      try { conn.send(syncMsg); } catch(e) {}
+    }
+  });
+}, 1000);
 
 function copyPlayerLink() {
   const url = window.location.href.replace('mestre.html', 'player.html') + '#' + ROOM_CODE;
