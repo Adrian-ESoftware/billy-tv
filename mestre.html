@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>Painel do Mestre - Controle do Jigsaw</title>
 <script src="paho-mqtt.min.js"></script>
-<script src="peerjs.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -271,9 +270,6 @@
       <div class="status-dot"></div>
       <span id="status-text">AGUARDANDO CONEXÕES</span>
     </div>
-    <button class="open-link" onclick="restartPeerServer()" title="Reiniciar servidor P2P caso oscile a conexão" style="cursor: pointer; background: #1a221a; border-color: #3b5c3b; color: #a3cfa3;">
-      🔄 RECONECTAR SERVIDOR
-    </button>
   </div>
 </header>
 
@@ -514,7 +510,7 @@ initMqtt();
 
 /* FUNÇÃO CENTRAL DE TRANSMISSÃO (ENVIA PARA TODOS OS DESTINOS) */
 function broadcastAll(msg) {
-  // 1. Canal local
+  // 1. Canal local (para 2ª tela ou OBS/Discord na mesma máquina)
   channel.postMessage(msg);
 
   // 2. MQTT em nuvem com retenção de estado
@@ -523,23 +519,15 @@ function broadcastAll(msg) {
   } else {
     publishMqttState(true);
   }
-
-  // 3. WebRTC P2P de contingência
-  remoteClients.forEach(conn => {
-    if (conn.open) {
-      try { conn.send(msg); } catch(e) {}
-    }
-  });
 }
 
 function updateConnectionStatus() {
-  const isOnline = isMqttConnected || remoteClients.length > 0 || isLocalConnected;
+  const isOnline = isMqttConnected || isLocalConnected;
   if (isOnline) {
     statusBadge.classList.add('connected');
     let desc = [];
-    if (isMqttConnected) desc.push('Nuvem Ativa');
+    if (isMqttConnected) desc.push('Nuvem Global');
     if (isLocalConnected) desc.push('Local');
-    if (remoteClients.length > 0) desc.push(`${remoteClients.length} P2P`);
     statusText.innerText = `TRANSMITINDO (${desc.join(' + ')})`;
   } else {
     statusBadge.classList.remove('connected');
@@ -565,138 +553,6 @@ channel.onmessage = (e) => {
 setInterval(() => {
   channel.postMessage({ type: 'PING' });
 }, 2000);
-
-/* 2. SERVIDOR WEBRTC P2P VIA PEERJS PARA JOGADORES DISTANTES */
-const PEER_CONFIG = {
-  debug: 1,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' }
-    ]
-  }
-};
-
-let peer = null;
-let peerInitTimer = null;
-
-function initPeerServer() {
-  if (typeof Peer === 'undefined') return;
-  if (peer && !peer.destroyed) {
-    try { peer.destroy(); } catch(e) {}
-  }
-
-  const targetId = 'jigsaw-gm-' + ROOM_CODE;
-  console.log('Iniciando servidor PeerJS como:', targetId);
-  statusText.innerText = 'CONECTANDO AO SERVIDOR P2P...';
-
-  try {
-    peer = new Peer(targetId, PEER_CONFIG);
-
-    peer.on('open', (id) => {
-      console.log('Servidor PeerJS ativo e pronto:', id);
-      updateConnectionStatus();
-    });
-
-    peer.on('connection', (conn) => {
-      conn.on('open', () => {
-        // Remove conexões duplicadas para o mesmo peer
-        remoteClients = remoteClients.filter(c => c.peer !== conn.peer);
-        remoteClients.push(conn);
-        updateConnectionStatus();
-
-        // Envia estado imediato
-        sendSyncToClient(conn);
-      });
-
-      conn.on('data', (data) => {
-        if (data && data.type === 'PLAYER_CONNECTED') {
-          sendSyncToClient(conn);
-        }
-      });
-
-      conn.on('close', () => {
-        remoteClients = remoteClients.filter(c => c !== conn);
-        updateConnectionStatus();
-      });
-
-      conn.on('error', () => {
-        remoteClients = remoteClients.filter(c => c !== conn);
-        updateConnectionStatus();
-      });
-    });
-
-    peer.on('error', (err) => {
-      console.warn('PeerJS status:', err.type, err);
-      if (err.type === 'unavailable-id') {
-        statusText.innerText = 'SESSÃO ANTERIOR FECHANDO... AGUARDE';
-        clearTimeout(peerInitTimer);
-        peerInitTimer = setTimeout(initPeerServer, 2000);
-      } else if (err.type === 'disconnected' || err.type === 'network') {
-        statusText.innerText = 'RECONECTANDO SERVIDOR...';
-        clearTimeout(peerInitTimer);
-        peerInitTimer = setTimeout(initPeerServer, 3000);
-      }
-    });
-
-    peer.on('disconnected', () => {
-      console.log('PeerJS desconectado. Reconectando...');
-      try { peer.reconnect(); } catch(e) {}
-    });
-
-  } catch(e) {
-    console.error('Falha ao inicializar PeerJS:', e);
-  }
-}
-
-function sendSyncToClient(conn) {
-  if (!conn || !conn.open) return;
-  try {
-    conn.send({
-      type: 'STATE_SYNC',
-      powered: tvPowered,
-      noise: noiseVal,
-      timerMode: timerCenterMode ? 'center' : 'normal',
-      timerVisible: timerVisible,
-      timerText: formatTime(timerRemaining),
-      timerWarning: timerRemaining <= 10 && timerRemaining > 0
-    });
-  } catch(e) {}
-}
-
-function restartPeerServer() {
-  remoteClients = [];
-  initPeerServer();
-}
-
-// Inicia servidor WebRTC
-initPeerServer();
-
-// Heartbeat contínuo de sincronização a cada 1 segundo (Garante que nenhum player perca o estado!)
-setInterval(() => {
-  const syncMsg = {
-    type: 'STATE_SYNC',
-    powered: tvPowered,
-    noise: noiseVal,
-    timerMode: timerCenterMode ? 'center' : 'normal',
-    timerVisible: timerVisible,
-    timerText: formatTime(timerRemaining),
-    timerWarning: timerRemaining <= 10 && timerRemaining > 0
-  };
-
-  // 1. Canal local
-  channel.postMessage(syncMsg);
-
-  // 2. Todos os remotos
-  remoteClients.forEach(conn => {
-    if (conn.open) {
-      try { conn.send(syncMsg); } catch(e) {}
-    }
-  });
-}, 1000);
 
 function copyPlayerLink() {
   const url = window.location.href.replace('mestre.html', 'player.html') + '#' + ROOM_CODE;

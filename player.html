@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>Billy TV - Tela dos Jogadores</title>
 <script src="paho-mqtt.min.js"></script>
-<script src="peerjs.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100vw; height: 100vh; background: #000; overflow: hidden; cursor: none; }
@@ -551,50 +550,6 @@ function initPlayerMqttFallback() {
 }
 
 initPlayerMqtt();
-
-/* 3. CONEXÃO WEBRTC P2P DE CONTINGÊNCIA */
-const PEER_CONFIG = {
-  debug: 0,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' }
-    ]
-  }
-};
-
-let peer = null;
-let activeConn = null;
-
-function initPlayerPeer() {
-  if (typeof Peer === 'undefined') return;
-  try {
-    peer = new Peer(PEER_CONFIG);
-    peer.on('open', () => {
-      connectToRemoteGM(roomCode);
-    });
-    peer.on('error', () => {
-      setTimeout(initPlayerPeer, 5000);
-    });
-  } catch(e) {}
-}
-
-function connectToRemoteGM(code) {
-  if (!peer || peer.destroyed) return;
-  try {
-    const conn = peer.connect('jigsaw-gm-' + code, { reliable: true });
-    activeConn = conn;
-    conn.on('data', (data) => {
-      handleIncomingMessage(data);
-    });
-    conn.on('close', () => {
-      setTimeout(() => connectToRemoteGM(code), 3000);
-    });
-  } catch(e) {}
-}
-
-initPlayerPeer();
 
 // Destrava áudio do navegador ao clicar na tela preta
 window.addEventListener('click', () => {
